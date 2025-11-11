@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Trash2, Download, Sparkles, ChefHat, FlaskConical, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { nanoid } from 'nanoid';
 
-type Personality = 'friendly' | 'ramsay' | 'science' | 'grandma';
+type Personality = 'friendly' | 'gordon' | 'grandma' | 'scientific';
 
 interface Message {
   id: string;
@@ -29,14 +30,14 @@ const personalities: Record<Personality, PersonalityConfig> = {
     description: 'Encouraging and helpful',
     greeting: 'Hello! 👋 I\'m your friendly cooking assistant! I\'m here to help you create amazing dishes with confidence. What would you like to cook today?',
   },
-  ramsay: {
+  gordon: {
     name: 'Gordon Ramsay Mode',
     emoji: '🔥',
     icon: <Sparkles className="w-5 h-5" />,
     description: 'Direct and passionate',
     greeting: 'Right, let\'s get this sorted! 🔥 I\'m here to help you cook properly. No nonsense, just great food. What are we making?',
   },
-  science: {
+  scientific: {
     name: 'Science Cook',
     emoji: '🔬',
     icon: <FlaskConical className="w-5 h-5" />,
@@ -60,97 +61,39 @@ const quickPrompts = [
   "Make this recipe vegetarian",
 ];
 
-function getResponse(userMessage: string, personality: Personality, conversationHistory: Message[]): string {
-  const lowerMessage = userMessage.toLowerCase().trim();
-  const lastUserMessage = conversationHistory.filter(m => m.role === 'user').slice(-1)[0]?.content.toLowerCase() || '';
+// robust key generator (avoids "" / duplicates)
+function msgKey(m: Message, i: number) {
+    // Prefer a non-empty id
+    if (m.id?.trim()) return m.id;
   
-  // Personality-specific responses
-  const responses: Record<Personality, (msg: string, history: Message[]) => string> = {
-    friendly: (msg, history) => {
-      if (msg.includes('chicken') && msg.includes('rice')) {
-        return 'Great choice! 🍗 Here are some delicious options:\n\n1. **Chicken Fried Rice** - Quick and easy!\n   • Cook rice, let it cool\n   • Stir-fry diced chicken\n   • Add vegetables and rice\n   • Season with soy sauce\n\n2. **Chicken and Rice Casserole** - Comfort food!\n   • Layer chicken, rice, and broth\n   • Bake at 375°F for 45 minutes\n   • Top with cheese if desired\n\n3. **Chicken Teriyaki Bowl** - Flavorful!\n   • Marinate chicken in teriyaki sauce\n   • Grill or pan-sear\n   • Serve over steamed rice\n\nWhich one sounds good? I can give you detailed steps! 😊';
-      }
-      if (msg.includes('oversalt') || msg.includes('too salty')) {
-        return 'Don\'t worry, we can fix that! 💪 Here are some solutions:\n\n1. **Add more liquid** - Dilute with water, broth, or unsalted stock\n2. **Add potatoes** - They absorb salt! Add diced potatoes and cook for 10-15 minutes, then remove\n3. **Add acid** - A splash of lemon juice or vinegar can balance saltiness\n4. **Add sugar** - A tiny pinch can help counteract salt\n5. **Add dairy** - Cream or milk can mellow out saltiness\n\nWhat type of dish is it? I can give more specific advice! 😊';
-      }
-      if (msg.includes('beginner') || msg.includes('easy')) {
-        return 'Perfect for starting out! 🌟 Here are some beginner-friendly dinner ideas:\n\n1. **Pasta with Marinara** - Simple and delicious\n2. **Sheet Pan Chicken and Vegetables** - One pan, minimal cleanup!\n3. **Tacos** - Fun and customizable\n4. **Stir Fry** - Quick and healthy\n5. **Grilled Cheese and Soup** - Classic comfort food\n\nWould you like detailed instructions for any of these? I\'m here to help! 😊';
-      }
-      if (msg.includes('convert') || msg.includes('metric')) {
-        return 'I\'d be happy to help convert measurements! 📏\n\nCommon conversions:\n• 1 cup = 240 ml\n• 1 tablespoon = 15 ml\n• 1 teaspoon = 5 ml\n• 1 ounce = 28 grams\n• 350°F = 175°C\n\nShare the recipe you want to convert, and I\'ll help you! 😊';
-      }
-      if (msg.includes('vegetarian') || msg.includes('vegan')) {
-        return 'Great choice for a plant-based meal! 🌱\n\nCommon substitutions:\n• **Meat** → Tofu, tempeh, beans, or mushrooms\n• **Chicken broth** → Vegetable broth\n• **Butter** → Olive oil or vegan butter\n• **Eggs** → Flax eggs (1 tbsp ground flax + 3 tbsp water)\n• **Cheese** → Nutritional yeast or vegan cheese\n\nWhat recipe would you like to convert? I\'ll guide you through it! 😊';
-      }
-      if (msg.includes('hello') || msg.includes('hi')) {
-        return 'Hello! 👋 So glad you\'re here! I\'m excited to help you cook something amazing. What would you like to make today?';
-      }
-      if (msg.includes('recipe') || msg.includes('cook')) {
-        return 'I\'d love to help you with a recipe! 🍳\n\nYou can also check out the Recipe Finder page to search by ingredients. Or tell me what you\'re in the mood for, and I\'ll suggest something perfect! 😊';
-      }
-      return 'That\'s a great question! 🤔\n\nI can help you with:\n• Recipe suggestions and modifications\n• Cooking techniques and tips\n• Ingredient substitutions\n• Troubleshooting cooking problems\n• Step-by-step guidance\n\nWhat would you like to know more about? I\'m here to help! 😊';
-    },
-    
-    ramsay: (msg, history) => {
-      if (msg.includes('chicken') && msg.includes('rice')) {
-        return 'Right, chicken and rice - classic combo! 🔥\n\n**Chicken Fried Rice** - Do it properly:\n1. Cook your rice the day before or use day-old rice - fresh rice is too sticky!\n2. Get your wok SCREAMING hot\n3. Cook chicken first, set aside\n4. Scramble eggs, push aside\n5. Add rice, break it up properly\n6. Add chicken back, season with soy sauce\n7. Finish with green onions\n\nDon\'t overcrowd the pan! Cook in batches if needed. Now go make it! 🔥';
-      }
-      if (msg.includes('oversalt') || msg.includes('too salty')) {
-        return 'You\'ve over-salted it, haven\'t you? Right, let\'s fix this properly:\n\n1. **Add potatoes** - They\'ll soak up the salt. Dice them, add to the dish, cook 10 minutes, then fish them out\n2. **Dilute it** - Add more unsalted liquid (water, stock, whatever fits)\n3. **Add acid** - Lemon juice or vinegar cuts through salt\n4. **Add sugar** - Tiny bit, balances it out\n\nNext time, taste as you go! Season gradually, not all at once. Got it? 🔥';
-      }
-      if (msg.includes('beginner') || msg.includes('easy')) {
-        return 'Right, let\'s start you off properly! 🔥\n\n**Beginner-friendly dinners that actually taste good:**\n1. **Pasta Aglio e Olio** - Garlic, oil, pasta. Simple, delicious\n2. **Pan-seared chicken** - Season it, hot pan, 6-7 minutes each side\n3. **Roasted vegetables** - Toss in oil, salt, pepper, 425°F until golden\n4. **Stir fry** - High heat, don\'t overcook the veg\n\nStart simple, master the basics, then build from there. No shortcuts! 🔥';
-      }
-      if (msg.includes('convert') || msg.includes('metric')) {
-        return 'Right, metric conversions:\n\n• 1 cup = 240ml\n• 1 tbsp = 15ml\n• 1 tsp = 5ml\n• 1 oz = 28g\n• 350°F = 175°C\n\nGive me the recipe, I\'ll convert it properly. No guesswork! 🔥';
-      }
-      if (msg.includes('vegetarian') || msg.includes('vegan')) {
-        return 'Plant-based? Right, here\'s how to do it properly:\n\n**Substitutions that actually work:**\n• Meat → Mushrooms (portobello, shiitake), tofu, or lentils\n• Chicken stock → Vegetable stock (make your own, don\'t buy that rubbish)\n• Butter → Good olive oil\n• Eggs → Flax eggs or aquafaba\n\nWhat recipe are we converting? Let\'s make it taste good, not just "healthy"! 🔥';
-      }
-      return 'Right, what do you need? 🔥\n\nI can help with:\n• Recipes done properly\n• Techniques that actually work\n• Fixing your mistakes\n• Making food that tastes good\n\nWhat\'s the problem? Let\'s sort it! 🔥';
-    },
-    
-    science: (msg, history) => {
-      if (msg.includes('chicken') && msg.includes('rice')) {
-        return 'Excellent question! Let\'s explore the chemistry and techniques: 🔬\n\n**Chicken and Rice - The Science:**\n\n1. **Chicken Fried Rice** - The key is using day-old rice. Fresh rice has excess moisture (starch retrogradation hasn\'t occurred), making it sticky. Older rice has crystallized starch, allowing individual grains to separate.\n\n2. **Maillard Reaction** - When searing chicken, you\'re creating complex flavor compounds through the Maillard reaction (amino acids + reducing sugars at 140-165°C).\n\n3. **Gelatinization** - Rice cooking involves starch gelatinization at 60-80°C, where starch granules absorb water and swell.\n\nWould you like detailed scientific explanations for any technique? 🔬';
-      }
-      if (msg.includes('oversalt') || msg.includes('too salty')) {
-        return 'Interesting problem! Let\'s understand the chemistry: 🔬\n\n**Why it tastes too salty:**\nSodium ions (Na+) bind to taste receptors, creating the salty sensation. Too many ions = overwhelming signal.\n\n**Solutions based on chemistry:**\n1. **Osmosis** - Potatoes absorb salt through osmotic pressure (water moves from low to high salt concentration)\n2. **Dilution** - Reducing Na+ ion concentration per volume\n3. **Acid-base balance** - Acids (lemon, vinegar) can mask saltiness by activating different taste receptors\n4. **Sugar** - Can interfere with salt receptor binding\n\nWhat type of dish? I can calculate the optimal dilution ratio! 🔬';
-      }
-      if (msg.includes('beginner') || msg.includes('easy')) {
-        return 'Great starting point! Let\'s understand the fundamentals: 🔬\n\n**Beginner recipes that teach core principles:**\n\n1. **Pasta** - Demonstrates starch gelatinization and salt diffusion\n2. **Roasting** - Maillard reactions and caramelization\n3. **Sautéing** - Heat transfer and moisture control\n4. **Boiling** - Phase changes and temperature control\n\nEach technique teaches fundamental cooking science. Which principle would you like to explore? 🔬';
-      }
-      if (msg.includes('convert') || msg.includes('metric')) {
-        return 'Precise conversions based on standard measurements: 🔬\n\n**Volume (based on water density at 4°C):**\n• 1 cup = 236.588 ml (exact)\n• 1 tbsp = 14.7868 ml\n• 1 tsp = 4.92892 ml\n\n**Mass:**\n• 1 oz = 28.3495 g\n• 1 lb = 453.592 g\n\n**Temperature (linear conversion):**\n• °C = (°F - 32) × 5/9\n• 350°F = 176.67°C\n\nShare your recipe for precise conversion! 🔬';
-      }
-      if (msg.includes('vegetarian') || msg.includes('vegan')) {
-        return 'Fascinating! Plant-based substitutions involve understanding protein structure and flavor compounds: 🔬\n\n**Scientific substitutions:**\n• **Meat proteins** → Plant proteins (tofu, tempeh) - Different amino acid profiles, similar texture through denaturation\n• **Umami** → Mushrooms contain glutamate (MSG naturally)\n• **Binding** → Flax eggs work through mucilage (soluble fiber) creating gel-like structure\n• **Maillard reaction** → Works with plant proteins too, but at different temperatures\n\nWhat recipe? I\'ll explain the molecular changes! 🔬';
-      }
-      return 'Excellent question! 🔬\n\nI can explain:\n• The chemistry behind cooking techniques\n• Physics of heat transfer\n• Molecular gastronomy principles\n• Why recipes work (or don\'t)\n• Food science fundamentals\n\nWhat would you like to understand on a scientific level? 🔬';
-    },
-    
-    grandma: (msg, history) => {
-      if (msg.includes('chicken') && msg.includes('rice')) {
-        return 'Oh, chicken and rice! That\'s one of my favorites, dear! ❤️\n\nHere\'s how I\'ve always made it:\n\n**My Chicken and Rice Casserole:**\n1. Season your chicken with love (and a bit of salt, pepper, and paprika)\n2. Brown it in a pan - don\'t rush this part, let it get nice and golden\n3. Mix your rice with some chicken broth - use the good stuff, not that boxed nonsense\n4. Layer it all in a casserole dish, cover with foil\n5. Bake at 375°F for about 45 minutes\n6. Let it rest a bit before serving - patience is key!\n\nIt\'s simple, but it\'s always been a hit with the family. Would you like my secret seasoning blend? ❤️';
-      }
-      if (msg.includes('oversalt') || msg.includes('too salty')) {
-        return 'Oh dear, we\'ve all been there! Don\'t you worry, sweetheart. ❤️\n\nHere\'s what my mother taught me:\n1. **Add a raw potato** - Cut it in half, drop it in, let it cook for 10-15 minutes, then take it out. It\'ll soak up that extra salt like a sponge!\n2. **A bit of sugar** - Just a tiny pinch, it helps balance things out\n3. **More liquid** - Add some unsalted broth or water, let it simmer a bit\n\nAnd remember, next time season a little at a time and taste as you go. That\'s the secret - patience and tasting! ❤️';
-      }
-      if (msg.includes('beginner') || msg.includes('easy')) {
-        return 'Oh, I\'m so proud you\'re learning to cook! ❤️\n\nHere are some recipes I\'ve taught all my grandchildren:\n\n1. **Simple Pasta** - Start with spaghetti and a good jarred sauce, then we\'ll work up to making your own\n2. **Roasted Chicken** - Nothing fancy, just salt, pepper, and a hot oven. Simple but delicious!\n3. **Soup** - Start with a good broth, add vegetables, let it simmer. Soup is forgiving, perfect for learning\n4. **Scrambled Eggs** - Low heat, stir gently, add a bit of cream. Master this, and you\'re on your way!\n\nStart simple, dear. Good cooking comes from the heart, not from complicated recipes. Which one would you like to try first? ❤️';
-      }
-      if (msg.includes('convert') || msg.includes('metric')) {
-        return 'Oh, those metric measurements! Let me help you, dear. ❤️\n\nHere\'s what I remember:\n• 1 cup = about 240 ml (I always say "a bit less than 250")\n• 1 tablespoon = 15 ml\n• 1 teaspoon = 5 ml\n• 1 ounce = about 28 grams\n• For temperature, 350°F is about 175°C\n\nBut you know what? The best recipes don\'t need to be exact. A pinch here, a dash there - that\'s how real cooking works! What recipe are you trying to convert, sweetheart? ❤️';
-      }
-      if (msg.includes('vegetarian') || msg.includes('vegan')) {
-        return 'Oh, that\'s wonderful, dear! My granddaughter is vegetarian too. ❤️\n\nHere\'s what I\'ve learned:\n• Instead of meat, try **mushrooms** - they have such a nice, meaty texture when cooked right\n• **Beans and lentils** - I\'ve always loved them, so filling and good for you\n• **Vegetable broth** instead of chicken - make your own if you can, it\'s so much better\n• For eggs, you can use **flaxseed** mixed with water - my granddaughter showed me that one!\n\nWhat recipe are you trying to make? I\'ll help you adapt it with love! ❤️';
-      }
-      return 'Oh, I\'m so glad you asked, dear! ❤️\n\nI\'ve been cooking for over 60 years, and I\'d love to share what I\'ve learned:\n• Family recipes passed down through generations\n• Traditional techniques that never fail\n• Tips and tricks from years of experience\n• How to cook with love and patience\n\nWhat would you like to learn, sweetheart? I\'m here to help! ❤️';
-    },
-  };
-  
-  return responses[personality](lowerMessage, conversationHistory);
+    // Fallback if id is missing or empty (rare)
+    return `${m.role}-${m.timestamp.toISOString()}-${i}`;
+  }
+
+async function sendToChatAPI(args: {
+  message: string;
+  personality: Personality;
+  history: Message[];
+}) {
+  // Send only role/content to the API (avoid Date serialization issues)
+  const historyMin = args.history.map(m => ({ role: m.role, content: m.content }));
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: args.message,
+      personality: args.personality,
+      history: historyMin,
+    }),
+  });
+
+  if (!res.ok) {
+    // fallback to generic message if network error (server already has its own mock fallback)
+    return { response: "I'm having trouble connecting right now. Try again in a moment?", mock: true };
+  }
+  return res.json() as Promise<{ response: string; success?: boolean; mock?: boolean }>;
 }
+
 
 function formatTime(date: Date): string {
   return new Intl.DateTimeFormat('en-US', {
@@ -180,7 +123,7 @@ function exportChatAsRecipe(messages: Message[]): string {
   
   return recipe;
 }
-
+  
 export default function ChatPage() {
   const [personality, setPersonality] = useState<Personality>('friendly');
   const [messages, setMessages] = useState<Message[]>([
@@ -217,33 +160,48 @@ export default function ChatPage() {
   }, [personality]);
 
   const handleSend = async () => {
-    if (!input.trim() || isTyping) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
+    const text = input.trim();
+    if (!text || isTyping) return;
+  
+    // 1) add user message
+    const userMsg: Message = {
+      id: nanoid(),
       role: 'user',
-      content: input,
+      content: text,
       timestamp: new Date(),
     };
-
-    setMessages((prev) => [...prev, userMessage]);
-    const currentInput = input;
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
-
-    // Simulate AI thinking time (varies by personality)
-    const thinkingTime = personality === 'ramsay' ? 800 : personality === 'science' ? 1500 : 1000;
-    
-    setTimeout(() => {
-      const response: Message = {
-        id: (Date.now() + 1).toString(),
+  
+    try {
+      // 2) call API with full history including the new userMsg
+      const { response } = await sendToChatAPI({
+        message: userMsg.content,
+        personality,
+        history: [...messages, userMsg],
+      });
+  
+      // 3) add assistant message
+      const aiMsg: Message = {
+        id: nanoid(),
         role: 'assistant',
-        content: getResponse(currentInput, personality, messages),
+        content: response ?? "Sorry — I couldn't generate a reply.",
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, response]);
+      setMessages(prev => [...prev, aiMsg]);
+    } catch (err) {
+      console.error(err);
+      const failMsg: Message = {
+        id: nanoid(),
+        role: 'assistant',
+        content: "I'm having trouble connecting right now. Please try again.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, failMsg]);
+    } finally {
       setIsTyping(false);
-    }, thinkingTime);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -360,25 +318,20 @@ export default function ChatPage() {
         <div className="bg-white dark:bg-zinc-800 rounded-2xl shadow-xl overflow-hidden flex flex-col h-[calc(100vh-280px)] md:h-[calc(100vh-240px)]">
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-gray-50 to-white dark:from-zinc-900 dark:to-zinc-800">
-            <AnimatePresence initial={false}>
-              {messages.map((message, idx) => {
-                const isUser = message.role === 'user';
-                const showAvatar = idx === 0 || messages[idx - 1].role !== message.role;
-                
-                return (
-                  <motion.div
-                    key={message.id}
-                    initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ 
-                      duration: 0.3,
-                      ease: "easeOut"
-                    }}
-                    className={`flex gap-2 items-end ${
-                      isUser ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
+          <AnimatePresence initial={false}>
+            {messages.map((message, idx) => {
+              const isUser = message.role === 'user';
+              const showAvatar = idx === 0 || messages[idx - 1].role !== message.role;
+
+              return (
+                <motion.div
+                  key={msgKey(message, idx)} // ← unique, non-empty, stable
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  className={`flex gap-2 items-end ${isUser ? 'justify-end' : 'justify-start'}`}
+                >
                   {!isUser && (
                     <div className={`flex-shrink-0 ${showAvatar ? 'w-8 h-8' : 'w-8'} flex items-center justify-center`}>
                       {showAvatar ? (
@@ -424,18 +377,26 @@ export default function ChatPage() {
               })}
             
             {isTyping && (
-              <div className="flex gap-2 items-end justify-start animate-in fade-in">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm">
-                  {currentPersonality.emoji}
+              <motion.div
+                key="typing-indicator" // ← give it a key, or move outside AnimatePresence
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="flex gap-2 items-end justify-start animate-in fade-in"
+              >
+                <div className="flex gap-2 items-end justify-start animate-in fade-in">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm">
+                    {currentPersonality.emoji}
+                    </div>
+                    <div className="bg-white dark:bg-zinc-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border border-gray-100 dark:border-zinc-600">
+                    <div className="flex gap-1">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                    </div>
                 </div>
-                <div className="bg-white dark:bg-zinc-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border border-gray-100 dark:border-zinc-600">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
-                </div>
-              </div>
+              </motion.div>
             )}
             <div ref={messagesEndRef} />
             </AnimatePresence>
