@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
-import { Heart, Clock, ChefHat, X } from 'lucide-react';
+import { Heart, Clock, ChefHat, X, ShoppingCart } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { sampleRecipes } from '@/lib/recipes';
 import type { Recipe } from '@/lib/types';
@@ -34,8 +35,35 @@ export default function RecipesPage() {
   const [cuisineFilter, setCuisineFilter] = useState<CuisineFilter>(null);
   const [favoriteRecipes, setFavoriteRecipes] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [shoppingList, setShoppingList] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // URL 파라미터에서 냉장고 재료 가져오기
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const ingredients = params.get('ingredients');
+      if (ingredients) {
+        const ingredientList = ingredients.split(',').map(i => i.trim()).filter(Boolean);
+        setIngredientTags(ingredientList);
+      }
+      
+      // localStorage에서 냉장고 재료 가져오기
+      const fridgeIngredients = localStorage.getItem('fridgeIngredients');
+      if (fridgeIngredients && !ingredients) {
+        try {
+          const parsed = JSON.parse(fridgeIngredients);
+          const names = parsed.map((ing: any) => ing.name);
+          if (names.length > 0) {
+            setIngredientTags(names);
+          }
+        } catch (e) {
+          // Ignore
+        }
+      }
+    }
+  }, []);
 
   // Load favorite recipes from localStorage
   useEffect(() => {
@@ -539,6 +567,17 @@ export default function RecipesPage() {
                           );
                         })}
                       </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-2">
+                      <Link
+                        href={`/shopping?add=${recipe.missingIngredients.join(',')}`}
+                        className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        장보기 추가
+                      </Link>
                     </div>
                   </div>
                 </motion.div>

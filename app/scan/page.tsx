@@ -52,22 +52,24 @@ const ingredientDatabase: Record<string, { category: string; emoji: string }> = 
   'avocado': { category: 'Fruits', emoji: '🥑' },
 };
 
-// Mock detection function (simulates AI recognition)
-function detectIngredients(imageFile: File): Promise<DetectedIngredient[]> {
-  return new Promise((resolve) => {
-    // Simulate processing time
-    setTimeout(() => {
-      // Mock detection - in real app, this would use TensorFlow.js or API
-      const mockDetections: DetectedIngredient[] = [
-        { name: 'tomato', confidence: 0.95, category: 'Vegetables', emoji: '🍅' },
-        { name: 'onion', confidence: 0.87, category: 'Vegetables', emoji: '🧅' },
-        { name: 'garlic', confidence: 0.82, category: 'Vegetables', emoji: '🧄' },
-        { name: 'chicken', confidence: 0.91, category: 'Meat', emoji: '🍗' },
-      ];
-      resolve(mockDetections);
-    }, 2000);
+// Call Next.js API for ingredient detection
+async function detectIngredients(imageFile: File): Promise<DetectedIngredient[]> {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+
+  const response = await fetch('/api/detect-ingredients', {
+    method: 'POST',
+    body: formData,
   });
+
+  if (!response.ok) {
+    throw new Error('Failed to detect ingredients');
+  }
+
+  const data = await response.json();
+  return data.ingredients || [];
 }
+
 
 function getExpiryDate(ingredientName: string): string {
   const today = new Date();
@@ -241,11 +243,12 @@ export default function ScanPage() {
     setSuggestedRecipes([]);
 
     try {
-      // Convert data URL to File for mock detection
+      // Convert data URL to File for API call
       const response = await fetch(imageToScan);
       const blob = await response.blob();
       const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
 
+      // Call Next.js API which proxies to Python YOLO server
       const detections = await detectIngredients(file);
       setDetectedIngredients(detections);
 

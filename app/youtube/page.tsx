@@ -26,18 +26,55 @@ function parseYouTubeURL(url: string): { videoId: string | null; isValid: boolea
   return { videoId: null, isValid: false };
 }
 
-// Mock function to generate sample recipe steps
-function generateSampleSteps(): RecipeStep[] {
-  return [
-    { timestamp: 0, time: '0:00', instruction: 'Introduction and ingredients overview' },
-    { timestamp: 120, time: '2:00', instruction: 'Start boiling water for pasta. Add salt generously.' },
-    { timestamp: 180, time: '3:00', instruction: 'Cook pasta according to package directions until al dente' },
-    { timestamp: 300, time: '5:00', instruction: 'While pasta cooks, fry bacon until crispy. Set aside.' },
-    { timestamp: 420, time: '7:00', instruction: 'Whisk eggs with grated parmesan cheese in a bowl' },
-    { timestamp: 480, time: '8:00', instruction: 'Drain pasta, reserving some pasta water' },
-    { timestamp: 540, time: '9:00', instruction: 'Combine hot pasta with bacon, then mix in egg mixture off heat' },
-    { timestamp: 600, time: '10:00', instruction: 'Add pasta water if needed, season with black pepper, serve immediately' },
-  ];
+// Get video duration using YouTube oEmbed API (simpler and more reliable)
+async function getVideoDuration(videoId: string): Promise<number> {
+  try {
+    // Method 1: Try oEmbed (doesn't have duration, but we can try)
+    // Method 2: Use a public API or fetch video page
+    // For now, we'll use a workaround with YouTube's video info
+    
+    // Try to get video info from a public endpoint
+    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch video info');
+    }
+    
+    // oEmbed doesn't provide duration, so we'll need to estimate
+    // or use the iframe method as fallback
+    return 0; // Will be handled by API
+  } catch (error) {
+    console.error('Error getting video duration:', error);
+    return 0; // Will use default in API
+  }
+}
+
+// Parse recipe steps from YouTube video
+async function parseRecipeSteps(url: string, duration?: number): Promise<{ videoId: string; steps: RecipeStep[]; duration: number; error?: string }> {
+  try {
+    const response = await fetch('/api/youtube-parse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url, duration }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to parse video');
+    }
+    
+    const data = await response.json();
+    return {
+      videoId: data.videoId,
+      steps: data.steps || [],
+      duration: data.duration || 0,
+      error: data.error,
+    };
+  } catch (error) {
+    console.error('Parse error:', error);
+    throw error;
+  }
 }
 
 export default function YouTubePage() {
@@ -47,6 +84,7 @@ export default function YouTubePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentTimestamp, setCurrentTimestamp] = useState(0);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
 
   const handleParse = async () => {
     if (!url.trim()) {
@@ -57,26 +95,192 @@ export default function YouTubePage() {
     setIsLoading(true);
     setError(null);
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const parsed = parseYouTubeURL(url);
+      
+      if (!parsed.isValid || !parsed.videoId) {
+        setError('Invalid YouTube URL. Please check and try again.');
+        setIsLoading(false);
+        return;
+      }
 
-    const parsed = parseYouTubeURL(url);
-    
-    if (!parsed.isValid || !parsed.videoId) {
-      setError('Invalid YouTube URL. Please check and try again.');
+      // Set video ID first
+      setVideoId(parsed.videoId);
+      setCurrentTimestamp(0);
+      
+      // Get duration FIRST using YouTube iframe API, then parse steps
+      let actualDuration = 0;
+      
+      // Load YouTube iframe API
+      if (!(window as any).YT) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+        
+        await new Promise<void>((resolve) => {
+          (window as any).onYouTubeIframeAPIReady = () => resolve();
+        });
+      }
+      
+      // Create temporary hidden player to get duration
+      const tempDiv = document.createElement('div');
+      tempDiv.id = 'temp-duration-check';
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      tempDiv.style.width = '1px';
+      tempDiv.style.height = '1px';
+      document.body.appendChild(tempDiv);
+      
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Timeout getting duration'));
+          }, 10000);
+          
+          const player = new (window as any).YT.Player('temp-duration-check', {
+            videoId: parsed.videoId,
+            width: 1,
+            height: 1,
+            events: {
+              onReady: (event: any) => {
+                try {
+                  actualDuration = event.target.getDuration();
+                  console.log('✅ Got video duration:', actualDuration, 'seconds');
+                  clearTimeout(timeout);
+                  event.target.destroy();
+                  document.body.removeChild(tempDiv);
+                  resolve();
+                } catch (err) {
+                  clearTimeout(timeout);
+                  document.body.removeChild(tempDiv);
+                  reject(err);
+                }
+              },
+              onError: () => {
+                clearTimeout(timeout);
+                document.body.removeChild(tempDiv);
+                reject(new Error('Failed to load video'));
+              },
+            },
+          });
+        });
+      } catch (err) {
+        console.error('Error getting duration:', err);
+        document.body.removeChild(tempDiv);
+        setError('Could not get video duration. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Initialize the main YouTube player with API (after steps are loaded)
+      setTimeout(() => {
+        const container = document.getElementById('youtube-player-container');
+        if (container) {
+          // Destroy existing player if any
+          if ((window as any).youtubePlayer) {
+            try {
+              (window as any).youtubePlayer.destroy();
+            } catch (e) {
+              // Ignore errors
+            }
+          }
+          
+          // Create new player
+          (window as any).youtubePlayer = new (window as any).YT.Player('youtube-player-container', {
+            videoId: parsed.videoId,
+            width: '100%',
+            height: '100%',
+            playerVars: {
+              enablejsapi: 1,
+              origin: window.location.origin,
+            },
+            events: {
+              onReady: (event: any) => {
+                console.log('✅ YouTube player ready');
+              },
+            },
+          });
+        }
+      }, 1000);
+
+      // Verify duration was actually retrieved
+      if (!actualDuration || actualDuration <= 0 || isNaN(actualDuration)) {
+        console.error('❌ ERROR: Invalid duration:', actualDuration);
+        setError(`Could not get video duration (got: ${actualDuration}). Please try again.`);
+        setIsLoading(false);
+        return;
+      }
+      
+      console.log('✅ Duration verified:', actualDuration, 'seconds (', Math.floor(actualDuration / 60), ':', (actualDuration % 60).toString().padStart(2, '0'), ')');
+
+      // Now parse steps with actual duration
+      const result = await parseRecipeSteps(url, actualDuration);
+      
+      if (result.error && result.steps.length === 0) {
+        setError(result.error || 'Could not extract recipe steps. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      // CRITICAL: Filter steps to only include those within actual video duration
+      console.log('🔍 Filtering steps...');
+      console.log('  Video duration:', actualDuration, 'seconds');
+      console.log('  Steps from API:', result.steps.length);
+      
+      if (result.steps.length > 0) {
+        console.log('  Steps timestamps:', result.steps.map((s: RecipeStep) => `${s.time} (${s.timestamp}s)`));
+        console.log('  Max step timestamp:', Math.max(...result.steps.map((s: RecipeStep) => s.timestamp)), 'seconds');
+      }
+      
+      const filteredSteps = result.steps.filter((step: RecipeStep) => {
+        const isValid = step.timestamp <= actualDuration;
+        if (!isValid) {
+          console.log(`  ❌ Filtered out: ${step.time} (${step.timestamp}s > ${actualDuration}s)`);
+        }
+        return isValid;
+      });
+
+      console.log('  ✅ Final steps:', filteredSteps.length);
+      if (filteredSteps.length > 0) {
+        console.log('  Final steps:', filteredSteps.map((s: RecipeStep) => `${s.time} - ${s.instruction.substring(0, 40)}...`));
+      } else {
+        console.warn('  ⚠️ WARNING: No steps after filtering!');
+      }
+
+      // Double check: ensure no steps exceed duration
+      const invalidSteps = filteredSteps.filter(s => s.timestamp > actualDuration);
+      if (invalidSteps.length > 0) {
+        console.error('❌ ERROR: Found invalid steps that exceed duration!', invalidSteps);
+        const validSteps = filteredSteps.filter(s => s.timestamp <= actualDuration);
+        setSteps(validSteps);
+      } else {
+        setSteps(filteredSteps);
+      }
+      
+      setVideoDuration(actualDuration);
+    } catch (err: any) {
+      setError(err.message || 'Failed to parse video. Please try again.');
+      console.error('Parse error:', err);
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setVideoId(parsed.videoId);
-    setSteps(generateSampleSteps());
-    setCurrentTimestamp(0);
-    setIsLoading(false);
   };
 
   const jumpToTimestamp = (timestamp: number) => {
     setCurrentTimestamp(timestamp);
-    // Update iframe src to jump to timestamp
+    
+    // Use YouTube iframe API to seek without reloading
+    if ((window as any).YT && (window as any).YT.Player) {
+      const player = (window as any).youtubePlayer;
+      if (player && typeof player.seekTo === 'function') {
+        player.seekTo(timestamp, true); // true = allowSeekAhead
+        console.log(`⏩ Seeking to ${timestamp}s`);
+        return;
+      }
+    }
+    
+    // Fallback: update iframe src (will reload video)
     const iframe = document.getElementById('youtube-player') as HTMLIFrameElement;
     if (iframe && videoId) {
       iframe.src = `https://www.youtube.com/embed/${videoId}?start=${timestamp}&enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`;
@@ -147,17 +351,14 @@ export default function YouTubePage() {
           <div className="space-y-6">
             {/* Embedded YouTube Player */}
             <div className="bg-white dark:bg-zinc-800 rounded-2xl shadow-lg overflow-hidden">
-              <div className="aspect-video bg-black">
-                <iframe
-                  id="youtube-player"
-                  key={`${videoId}-${currentTimestamp}`}
-                  className="w-full h-full"
-                  src={`https://www.youtube.com/embed/${videoId}?start=${currentTimestamp}&enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
+              <div className="aspect-video bg-black relative">
+                <div id="youtube-player-container" className="w-full h-full" />
               </div>
+              {videoDuration && (
+                <div className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">
+                  비디오 길이: {Math.floor(videoDuration / 60)}:{Math.floor(videoDuration % 60).toString().padStart(2, '0')}
+                </div>
+              )}
             </div>
 
             {/* Step-by-Step Instructions with Timestamps */}
